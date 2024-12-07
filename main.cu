@@ -3,11 +3,12 @@
 #include <cstdlib>
 #include <ctime>
 #include <algorithm>
+#include <random>
+#include <omp.h>
 using namespace std;
 
 #define bs 256
-
-
+#define SEED 123
 #define DIGITS 10
 
 __global__ void histogram_kernel(int n, int *dA, int *dHist, int exp) {
@@ -63,27 +64,27 @@ void cpu();
 void gpu(int *A, int *R, int *dA, int *dR, int n);
 
 // llena array de tamaño n con enteros
-void llena_array(int n, int *array);
+void llena_array(int *A, int n, int nt, int seed);
 
 // Imprime un array de enteros
 void print_array(int n, int *array);
 
 // Ejecutar como ./prog n modo nt
 int main(int argc, char **argv){
-    srand(static_cast<unsigned int>(time(0)));
 
     // Tomar argumentos e inicializar variables
     int n = atoi(argv[1]);
     int modo = atoi(argv[2]); 
     int nt = atoi(argv[3]);
+    omp_set_num_threads(nt);
 
     int *A = new int[n];
     int *R = new int[n]; // arreglos en memoria principal
     int *dA;
     int *dR; // direcciones de arreglos en gpu
-    
+
     // Llenar array e imprimir si es lo bastante pequeño
-    llena_array(n, A);
+    llena_array(A, n, nt, SEED);
     if(n <= 32){
         cout << "Array de entrada:" << endl;
         print_array(n, A);
@@ -118,9 +119,20 @@ int main(int argc, char **argv){
 
 }
 
-void llena_array(int n, int *array) {
-    for (int i = 0; i < n; ++i) {
-        array[i] = rand() % 1000;
+void llena_array(int *A, int n, int nt, int seed){
+    #pragma omp parallel shared(A)
+    {
+        int tid = omp_get_thread_num();
+        long chunk = n / nt;
+        long start = tid * chunk;
+        long end = (tid == nt - 1) ? n : start + chunk;
+
+        std::mt19937 mt(seed + tid);
+        std::uniform_int_distribution<int> dist(0, n - 1);
+
+        for (int k = start; k < end; ++k) {
+            A[k] = dist(mt);
+        }
     }
 }
 
