@@ -5,6 +5,10 @@
 #include <algorithm>
 #include <random>
 #include <omp.h>
+#include <omp.h>
+#include <climits> 
+#include <math.h>
+#include <vector>
 using namespace std;
 
 #define bs 256
@@ -65,8 +69,8 @@ void exclusive_scan(int *hist, int *prefix, int size) {
     }
 }
 
-
-void cpu();
+// PSKC Radix-sort
+void cpu(int *&data, int n, int b);
 
 void gpu(int *A, int *R, int *dA, int *dR, int n);
 
@@ -76,7 +80,7 @@ void llena_array(int *A, int n, int nt, int seed);
 // Imprime un array de enteros
 void print_array(int n, int *array);
 
-// Ejecutar como ./prog n modo nt
+// Ejecutar como ./prog n modo nt b
 int main(int argc, char **argv){
 
     // Tomar argumentos e inicializar variables
@@ -98,7 +102,10 @@ int main(int argc, char **argv){
     }
 
     if (modo == 0){
-        cpu();
+        double inicio = omp_get_wtime();
+        cpu(R, n, b);
+        double fin = omp_get_wtime();
+        cout << "Tiempo de ejecución: " << fin - inicio << " segundos" << endl;
     }
     else{
         // allocar memoria en device  (GPU)
@@ -110,8 +117,6 @@ int main(int argc, char **argv){
         cudaMemcpy(dR, R, sizeof(int)*n, cudaMemcpyHostToDevice);
 
         gpu(A, R, dA, dR, n);
-
-
     }
 
     // Imprimir resultado si es lo bastante pequeño
@@ -123,7 +128,6 @@ int main(int argc, char **argv){
     // Liberar memoria
     delete[] A;
     delete[] R;
-
 }
 
 void llena_array(int *A, int n, int nt, int seed){
@@ -150,9 +154,82 @@ void print_array(int n, int *array){
     cout << endl;
 }
 
-void cpu(){
-    return;
+void cpu(int *&data, int n, int b){
+    cout << "Comenzando..en funcion" << endl;
+    // Paso 1: Obtener muestra de datos
+    // Sample: contiene elementos seleccionados a intervalos regulares del vector data, con el objetivo no tener que procesar todo el vector original
+    int* sample = new int[n];
+    #pragma omp parallel for
+    for (int i = 0; i < n; i++) {
+        sample[i] = data[i * (n / b)];
+    }
+    cout << "listo paso 1" << endl;
+    // Paso 2: Reverse Sorting local
+    // El Reverse Sorting local se refiere a ordenar un subconjunto (sample) del vector data en orden descendente (de mayor a menor).
+    sort(sample, sample + n); // ordena el array sample de manera ascendente (de menor a mayor)
+    
+    // A partir de los valores ordenados en sample, se seleccionan b valores que servirán como particiones. Estos valores se almacenan en el arreglo partitions.
+
+    vector<int> partitions(b + 1); // b particiones
+    // se están eligiendo b elementos equidistantes del vector sample ordenado, que servirán como valores de partición.
+    for (int i = 0; i < b; i++) {
+        partitions[i] = sample[i * (n / b)]; 
+    }
+    partitions[b] = INT_MAX; // para tener un valor de partición que sea mayor que cualquier elemento del vector data.
+    cout << "listo paso 2" << endl;
+    // Paso 3: Comprobar equilibrio de carga y elección
+    
+    // Se averigua si se podria conseguir un buen equilibrio de carga entre los procesadores tras dos iteraciones de Reverse Sorting. 
+
+    int total_work = 0;
+    #pragma omp parallel for reduction(+:total_work)
+    for (int i = 0; i < n; i++) {
+        int bucket = std::lower_bound(partitions.begin(), partitions.end(), data[i]) - partitions.begin() - 1;
+        total_work += bucket;
+    }
+    
+    double imbalance = static_cast<double>(total_work) / (n * b);
+    cout << "listo paso 3" << endl;
+    // Si aplicando Reverse Sorting NO se consiguiese un buen equilibrio de carga entre los datos muestreados, se estara en el Caso (3.2) 
+    if (imbalance > 1.1) {
+        // Caso 3.1: Aplicar Reverse Sorting paralelo y ordenar.
+        // Todos los procesadores particionan el conjunto de datos a ordenar con la tecnica de Reverse Sorting paralelo.
+        cout << "en caso 3.1" << endl;
+        #pragma omp parallel for
+        for (int i = 0; i < b; i++) {
+            sort(data + i * (n / b), data + (i + 1) * (n / b), greater<int>());
+        }
+    } else {
+        // Caso 3.2: Aplicar Counting Split paralelo y ordenar.
+        // Los procesadores particionan conCounting Split en paralelo. 
+        cout << "en caso 3.2" << endl;
+        vector<vector<int>> buckets(b);
+        #pragma omp parallel for
+        for (int i = 0; i < n; i++) {
+            int bucket_index = lower_bound(partitions.begin(), partitions.end(), data[i]) - partitions.begin() - 1;
+            #pragma omp critical
+            {
+                buckets[bucket_index].push_back(data[i]);
+            }
+        }
+
+        #pragma omp parallel for
+        for (int i = 0; i < b; i++) {
+            sort(buckets[i].begin(), buckets[i].end());
+        }
+
+        int index = 0;
+        for (const auto& bucket : buckets) {
+            for (int num : bucket) {
+                data[index++] = num;
+            }
+        }
+    }
+
+    // Limpiar memoria de particiones y muestra
+    delete[] sample;
 }
+
 
 void gpu(int *A, int *R, int *dA, int *dR, int n) {
     // Reservar memoria en gpu para histograma y prefixsum
