@@ -6,3 +6,6 @@ https://docs.google.com/document/d/1GEVJiUwgkSuxtZbR0nqG6FjxyjoMd331Xydd0eeiLJg/
 
 # PARA GUARDAR ARTICULOS INVESTIGADOS
 https://docs.google.com/document/d/10_B0CK5LmukBo_jZmQLp80kuM2a9jgxZxCw22yQo47k/edit?usp=sharing
+
+# TIEMPOS GPU
+https://docs.google.com/document/d/1HKs3FHcY9IbYQdaG_yTT4_qFY6LdAypV22Efd5x7BPo/edit?usp=sharing
