@@ -11,14 +11,17 @@ using namespace std;
 #define SEED 123
 #define DIGITS 10
 
+// Cada thread toma el digito de un elemento del array A con respecto al exponente dado y aumenta
+// un contador de ocurrencias de dicho digito
 __global__ void histogram_kernel(int n, int *dA, int *dHist, int exp) {
+    // Histograma con ocurrencias de cada digito en memoria compartida
     __shared__ int sharedHist[DIGITS];
     
-    // Initialize shared histogram
+    // Se limpia el histograma de resultados anteriores
     if (threadIdx.x < DIGITS) sharedHist[threadIdx.x] = 0;
     __syncthreads();
 
-    // Compute digit for each element
+    // Se obtiene digito de elemento de A y se usa atomicAdd para añadir ocurrencia a sharedHist
     int tidx = blockIdx.x * blockDim.x + threadIdx.x;
     if (tidx < n) {
         int digit = (dA[tidx] / exp) % DIGITS;
@@ -26,31 +29,35 @@ __global__ void histogram_kernel(int n, int *dA, int *dHist, int exp) {
     }
     __syncthreads();
 
-    // Write shared histogram to global memory
+    // Se guarda resultados de memoria compartida en el histograma dHist
     if (threadIdx.x < DIGITS) {
         atomicAdd(&dHist[threadIdx.x], sharedHist[threadIdx.x]);
     }
 }
 
+// 
 __global__ void scatter_kernel(int n, int *dA, int *dR, int *dPrefixSum, int exp) {
+    // prefixSum en memoria compartida
     __shared__ int sharedPrefix[DIGITS];
 
-    // Load prefix sums into shared memory
+    // se carga la suma de prefijos a la memoria compartida para mejorar rendimiento 
     if (threadIdx.x < DIGITS) {
         sharedPrefix[threadIdx.x] = dPrefixSum[threadIdx.x];
     }
     __syncthreads();
 
+    // Se obtiene digito del elemento de A al que accede el thread
     int tidx = blockIdx.x * blockDim.x + threadIdx.x;
     if (tidx < n) {
         int digit = (dA[tidx] / exp) % DIGITS;
 
-        // Compute global position and scatter element
+        // Se obtiene posicion global que ocupara el elemento de A y se guarda en R
         int pos = atomicAdd(&sharedPrefix[digit], 1);
         dR[pos] = dA[tidx];
     }
 }
 
+// Realiza prefixSum con el histograma y versiones anteriores del prefixSum y guarda en el mismo prefix
 void exclusive_scan(int *hist, int *prefix, int size) {
     prefix[0] = 0;
     for (int i = 1; i < size; ++i) {
@@ -148,68 +155,76 @@ void cpu(){
 }
 
 void gpu(int *A, int *R, int *dA, int *dR, int n) {
-    // Allocate memory for histogram and prefix sum
+    // Reservar memoria en gpu para histograma y prefixsum
     int *dHist, *dPrefixSum;
     cudaMalloc(&dHist, DIGITS * sizeof(int));
     cudaMalloc(&dPrefixSum, DIGITS * sizeof(int));
 
+    // Dimensiones de la grilla
     dim3 blockSize(bs, 1, 1);
     dim3 gridSize((n + bs - 1) / bs, 1, 1);
 
+    // Inicializar histograma y prefixsum en memoria principal
     int *hHist = new int[DIGITS];
     int *hPrefixSum = new int[DIGITS];
 
-    // Create CUDA events for timing
+    // Para medir tiempo en milisegundos
     cudaEvent_t start, stop;
     float milliseconds = 0.0f;
     cudaEventCreate(&start);
     cudaEventCreate(&stop);
 
-    // Start the timer
+    // Comienza a medir tiempo
     cudaEventRecord(start);
 
+    // A partir del numero mas grande del array se sabe cuantos digitos usar
     int maxVal = *max_element(A, A + n);
+
+    // El for se ejecuta por cada digito, es decir unidades, decenas, etc
     for (int exp = 1; maxVal / exp > 0; exp *= 10) {
-        // Reset histogram
+        // Se resetea el histograma de gpu
         cudaMemset(dHist, 0, DIGITS * sizeof(int));
 
-        // Step 1: Compute histogram
+        // Se crea el histograma para los digitos actuales
         histogram_kernel<<<gridSize, blockSize>>>(n, dA, dHist, exp);
         cudaDeviceSynchronize();
 
-        // Copy histogram to host and compute prefix sum
+        // Se copia el histograma de gpu al de memoria principal
         cudaMemcpy(hHist, dHist, DIGITS * sizeof(int), cudaMemcpyDeviceToHost);
+
+        // Se calcula prefixSum
         exclusive_scan(hHist, hPrefixSum, DIGITS);
 
-        // Copy prefix sum to device
+        // Se copia prefixSum en memoria principal
         cudaMemcpy(dPrefixSum, hPrefixSum, DIGITS * sizeof(int), cudaMemcpyHostToDevice);
 
-        // Step 2: Scatter elements
+        // Se ordenan elementos de acuerdo al digito actual con el prefixSum 
         scatter_kernel<<<gridSize, blockSize>>>(n, dA, dR, dPrefixSum, exp);
         cudaDeviceSynchronize();
 
-        // Swap input and output arrays for next iteration
+        // Se intercambian punteros de A y R para trabajar sobre el arreglo parcialmente ordenado
+        // con respecto al ultimo digito
         std::swap(dA, dR);
     }
 
-    // End the timer
+    // Se termina de contar el tiempo
     cudaEventRecord(stop);
     cudaEventSynchronize(stop);
     cudaEventElapsedTime(&milliseconds, start, stop);
 
-    // Copy final sorted array to host
+    // Se guarda el resultado en memoria principal
     cudaMemcpy(R, dA, n * sizeof(int), cudaMemcpyDeviceToHost);
 
-    // Print the time taken
+    // Se imprime tiempo que tomo ordenar
     std::cout << "Time taken by GPU radix sort: " << milliseconds << " ms" << std::endl;
 
-    // Free memory
+    // Liberar memoria
     cudaFree(dHist);
     cudaFree(dPrefixSum);
     delete[] hHist;
     delete[] hPrefixSum;
 
-    // Destroy CUDA events
+    // Se eliminan eventos de cuda
     cudaEventDestroy(start);
     cudaEventDestroy(stop);
 }
