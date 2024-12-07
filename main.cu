@@ -87,6 +87,7 @@ int main(int argc, char **argv){
     int n = atoi(argv[1]);
     int modo = atoi(argv[2]); 
     int nt = atoi(argv[3]);
+    int b = atoi(argv[4]);
     omp_set_num_threads(nt);
 
     int *A = new int[n];
