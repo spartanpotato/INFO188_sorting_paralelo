@@ -3,6 +3,7 @@ Investigacion del estado del arte de algoritmos de sorting paralelo para CPU y G
 
 # Ejecución
 El algoritmo debe de ejecutarse de la siguiente manera:
+
 ./prog n modo nt b
 
 | Argumento | Descripcion                  |
@@ -14,9 +15,3 @@ El algoritmo debe de ejecutarse de la siguiente manera:
 
 # INFORME:
 https://docs.google.com/document/d/1GEVJiUwgkSuxtZbR0nqG6FjxyjoMd331Xydd0eeiLJg/edit?usp=sharing
-
-# PARA GUARDAR ARTICULOS INVESTIGADOS
-https://docs.google.com/document/d/10_B0CK5LmukBo_jZmQLp80kuM2a9jgxZxCw22yQo47k/edit?usp=sharing
-
-# TIEMPOS GPU
-https://docs.google.com/document/d/1HKs3FHcY9IbYQdaG_yTT4_qFY6LdAypV22Efd5x7BPo/edit?usp=sharing
